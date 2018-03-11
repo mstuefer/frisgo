@@ -22,7 +22,7 @@ Also, it shall be possible to import different test scripts from other test tool
 ## Test Filename Structure
 
 ```
-	TestSuiteNumber_TestNumber_Description.json
+TestSuiteNumber_TestNumber_Description.json
 ```
 
 ## Example Test
