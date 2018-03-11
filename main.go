@@ -65,14 +65,10 @@ func main() {
 
 		execTest(file.Name())
 	}
-
-	fmt.Println()
 }
 
 func execTest(name string) {
-	var t testDescription
-
-	readTestDescription(name, &t)
+	t := readTestDescription(name)
 
 	req, err := http.NewRequest(t.Test.Method, t.Test.Url, nil)
 	if err != nil {
@@ -86,15 +82,18 @@ func execTest(name string) {
 	evaluateTest(resp, t)
 }
 
-func readTestDescription(name string, t *testDescription) {
+func readTestDescription(name string) testDescription {
 	file, err := ioutil.ReadFile(testdir + "/" + name)
 	if err != nil {
 		log.Fatal(err)
 	}
 
+	var t testDescription
 	if err := json.NewDecoder(bytes.NewReader(file)).Decode(&t); err != nil {
 		log.Fatal(err)
 	}
+
+	return t
 }
 
 func evaluateTest(resp *http.Response, t testDescription) {
