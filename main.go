@@ -8,6 +8,7 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	"path/filepath"
 	"strings"
 
 	"github.com/fatih/color"
@@ -15,18 +16,19 @@ import (
 )
 
 var testdir string
-var verbose bool
+
+// var verbose bool
+
+type testDescription struct {
+	Name   string
+	Test   test
+	Result testResult
+}
 
 type test struct {
 	Token  string `json:"x_auth_token"`
 	Url    string
 	Method string
-}
-
-type testResultContent struct {
-	Field string
-	Type  string
-	Value string
 }
 
 type testResult struct {
@@ -35,24 +37,19 @@ type testResult struct {
 	Contains       []testResultContent
 }
 
-type testDescription struct {
-	Name   string
-	Test   test
-	Result testResult
+type testResultContent struct {
+	Field string
+	Type  string
+	Value string
 }
 
 func init() {
 	flag.StringVar(&testdir, "tests", "./tests/", "Directory with all tests")
-	flag.BoolVar(&verbose, "verbose", false, "Verbose to see why a test fails")
+	// flag.BoolVar(&verbose, "verbose", false, "Verbose to see why a test fails")
 }
 
 func main() {
 	flag.Parse()
-
-	fmt.Printf("\n**********\n* Frisgo *\n**********\n\n")
-
-	succeeded := color.New(color.Faint, color.FgGreen).PrintfFunc()
-	failed := color.New(color.Bold, color.FgRed).PrintfFunc()
 
 	files, err := ioutil.ReadDir(testdir)
 	if err != nil {
@@ -61,62 +58,66 @@ func main() {
 
 	for n, file := range files {
 		testName := strings.SplitN(file.Name(), "_", 3)
-		err := execTest(file.Name())
-		if err != nil {
-			failed("FAIL ")
-		} else {
-			succeeded("  OK ")
-		}
-		fmt.Printf("-> #%d\t<%s>\n", n, testName[2])
 
-		if err != nil && verbose {
-			fmt.Printf("\t%s\n", err)
-		}
+		fmt.Printf(
+			"%3d -- %s", n+1,
+			strings.TrimSuffix(testName[2], filepath.Ext(testName[2])))
+
+		execTest(file.Name())
 	}
 
 	fmt.Println()
 }
 
-func execTest(name string) error {
+func execTest(name string) {
 	var t testDescription
 
-	file, err := ioutil.ReadFile(testdir + "/" + name)
-	if err != nil {
-		return err
-	}
-
-	if err := json.NewDecoder(bytes.NewReader(file)).Decode(&t); err != nil {
-		return err
-	}
-
-	client := &http.Client{}
+	readTestDescription(name, &t)
 
 	req, err := http.NewRequest(t.Test.Method, t.Test.Url, nil)
 	if err != nil {
-		return err
+		log.Print(err)
 	}
 
+	client := &http.Client{}
 	resp, err := client.Do(req)
-	if err != nil {
-		return err
-	}
 	defer resp.Body.Close()
 
-	body, err := ioutil.ReadAll(resp.Body)
+	evaluateTest(resp, t)
+}
+
+func readTestDescription(name string, t *testDescription) {
+	file, err := ioutil.ReadFile(testdir + "/" + name)
 	if err != nil {
-		return err
+		log.Fatal(err)
 	}
 
+	if err := json.NewDecoder(bytes.NewReader(file)).Decode(&t); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func evaluateTest(resp *http.Response, t testDescription) {
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		log.Print(err)
+	}
+
+	succeeded := color.New(color.Faint, color.FgGreen).PrintfFunc()
+	failed := color.New(color.Bold, color.FgRed).PrintfFunc()
+
 	if resp.StatusCode != t.Result.StatusCode {
-		return fmt.Errorf("\n\tExpected StatusCode '%d', got '%d'\n", resp.StatusCode, t.Result.StatusCode)
+		failed(" [FAIL] Expected StatusCode '%d, got '%d'\n", resp.StatusCode, t.Result.StatusCode)
+		return
 	}
 
 	for _, c := range t.Result.Contains {
 		receivedValue := gjson.Get(string(body), c.Field)
 		if strings.Compare(receivedValue.String(), c.Value) != 0 {
-			return fmt.Errorf("\n\tExpected '%s' for field '%s', got '%s'\n", c.Value, c.Field, receivedValue)
+			failed(" [FAIL] Expected '%s' for field '%s', got '%s'\n", c.Value, c.Field, receivedValue)
+			return
 		}
 	}
 
-	return nil
+	succeeded(" [PASS]\n")
 }
